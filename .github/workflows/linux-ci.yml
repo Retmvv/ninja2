@@ -245,7 +245,7 @@ jobs:
           wget https://github.com/google/re2/archive/refs/tags/2021-11-01.tar.gz
           tar -zxvf 2021-11-01.tar.gz
           mv re2-2021-11-01 re2_cloudbuild
-          git clone https://gitee.com/cloudbuild888/cloudbuild.git
+          git clone https://github.com/Retmvv/ninja2-test.git
           cd cloudbuild/src
           ./cloudbuild -s$INTERNAL_IP
           sudo apt-get install -y nfs-kernel-server
