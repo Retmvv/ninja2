@@ -240,7 +240,7 @@ jobs:
 
 
        # 4. 安装 cloudbuild 服务端和 executor
-      - name: Install CloudBuild server and executor
+      - name: Install CloudBuild server and executor 
         run: |
           wget https://github.com/google/re2/archive/refs/tags/2021-11-01.tar.gz
           tar -zxvf 2021-11-01.tar.gz
