@@ -246,7 +246,7 @@ jobs:
           tar -zxvf 2021-11-01.tar.gz
           mv re2-2021-11-01 re2_cloudbuild
           git clone https://github.com/Retmvv/ninja2-test.git
-          cd cloudbuild/src
+          cd ninja2-test/src
           ./cloudbuild -s$INTERNAL_IP
           sudo apt-get install -y nfs-kernel-server
           echo "/home/re2_cloudbuild *(rw,no_root_squash,anonuid=1000,anongid=1000,insecure,async,no_subtree_check)" | sudo tee -a /etc/exports
