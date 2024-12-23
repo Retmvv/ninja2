@@ -387,10 +387,8 @@ void ExecutionContext::Execute(int fd, RemoteExecutor::RemoteSpawn* spawn,
   // spawn->work.remote = false;
   if (!cached && !spawn->can_remote) {
     // Execute locally
-     EdgeCommand c;
-     spawn->edge->EvaluateCommand(&c);
     SubprocessSet subprocset;
-    Subprocess* subproc = subprocset.Add(c);
+    Subprocess* subproc = subprocset.Add(spawn->command);
     if (!subproc) {
       Fatal("Error while `Execute locally and Update to ActionCache`"); 
     }    
