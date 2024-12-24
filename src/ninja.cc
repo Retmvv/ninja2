@@ -1600,6 +1600,9 @@ NORETURN void real_main(int argc, char** argv) {
       project_root = config.rbe_config.project_root;
     }
     load_devcontainer_config(project_root, config);
+    if(config.cloud_run){
+    load_command_file(project_root,config);
+    }
     printf("----------------------CloudBuild/ShareBuild Mode Info----------------------\n");
     if(config.cloud_run){
       printf("Enabled CloudBuild Mode, Please ensure that %s is running.\n", 
