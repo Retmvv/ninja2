@@ -5,10 +5,12 @@ on:
     branches:
       - master
       - main
+      - for_ci_test
   pull_request:
     branches:
       - master
       - main
+      - for_ci_test
 
 jobs:
   build:
@@ -225,3 +227,46 @@ jobs:
       # - name: debug network
       #   run: | 
       #     netstat -tuln | grep 8003
+      
+      #分布式构建
+       #  获取内部局域网 IP 地址
+      - name: Get internal network IP address
+        run: |
+          export INTERNAL_IP=$(ifconfig -a | grep inet | grep -v 127.0.0.1 | grep -v inet6 | awk '{print $2}' | tail -n 1)
+          echo "Internal IP Address: $INTERNAL_IP"
+        # 设置输出变量，后续步骤可以使用
+        id: get_internal_ip
+        continue-on-error: false
+
+
+       # 4. 安装 cloudbuild 服务端和 executor
+      - name: Install CloudBuild server and executor 
+        run: |
+          wget https://github.com/google/re2/archive/refs/tags/2021-11-01.tar.gz
+          tar -zxvf 2021-11-01.tar.gz
+          mv re2-2021-11-01 re2_cloudbuild
+          git clone https://github.com/Retmvv/ninja2-test.git
+          cd ninja2-test/src
+          ./cloudbuild -s$INTERNAL_IP
+          sudo apt-get install -y nfs-kernel-server
+          echo "/home/re2_cloudbuild *(rw,no_root_squash,anonuid=1000,anongid=1000,insecure,async,no_subtree_check)" | sudo tee -a /etc/exports
+          sudo exportfs -a
+          sudo systemctl restart nfs-kernel-server
+           ./cloudbuild -e$INTERNAL_IP
+
+      # 9. 在分布式环境中构建 re2 项目
+      - name: Distributed Build re2 with ninja2
+        run: |
+          # 分布式测试编译 re2
+          cd re2_cloudbuild
+          rm -rf build
+          mkdir -p build
+          cd build
+          cmake -G Ninja ..
+          ninja -c grpc://localhost:1985
+     # 测试 shabuild 编译出来的 re2 是否正常
+      - name: Test re2(cloudbuild)
+        run: |
+          cd re2_cloudbuild/build
+          ./re2_test
+          # ctest --output-on-failure
