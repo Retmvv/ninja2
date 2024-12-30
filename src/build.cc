@@ -778,14 +778,15 @@ constexpr int proportion = 3; //Best result from benchmark
 
 struct CloudCommandRunner : public CommandRunner {
   explicit CloudCommandRunner(const BuildConfig& config)
-      : config_(config), remote_procs_(config.parallelism * proportion) {}
+      : config_(config), remote_procs_(config.parallelism * proportion), local_runner(new RealCommandRunner(config)) {}
   virtual ~CloudCommandRunner() {}
   virtual size_t CanRunMore() const override;
   virtual bool StartCommand(Edge* work) override;
   virtual bool WaitForCommand(Result* result) override;
   virtual vector<Edge*> GetActiveEdges() override;
   virtual void Abort() override;
-
+  
+  std::unique_ptr<RealCommandRunner> local_runner;
   const BuildConfig& config_;
   RemoteProcessSet remote_procs_;
   map<const RemoteProcess*, Edge*> remoteproc_to_edge;
@@ -821,11 +822,22 @@ bool CloudCommandRunner::StartCommand(Edge* edge) {
   auto spawn = RemoteExecutor::RemoteSpawn::CreateRemoteSpawn(edge);
   string cmd_rule =spawn->edge->rule().name();
   if(config_.rbe_config.local_only_rules.find(cmd_rule) != config_.rbe_config.local_only_rules.end()){
-    return local_runner->StartCommand(edge);
+    SubprocessSet subprocset;
+    Subprocess* subproc = subprocset.Add(spawn->command,edge->use_console());
+    if (!subproc) {
+      return false;
+    }   
+    return true;
   }
-  for(auto &cmd:config_.rbe_config.fuzzy_rule){
-    if(cmd.find(cmd_rule)!=std::string::npos)
-    return local_runner->StartCommand(edge);
+  for(auto &cmd:config_.rbe_config.fuzzy_rules){
+    if(cmd.find(cmd_rule)!=std::string::npos){
+    SubprocessSet subprocset;
+    Subprocess* subproc = subprocset.Add(spawn->command,edge->use_console());
+    if (!subproc) {
+      return false;
+    }   
+    return true;
+    }
   }
   RemoteProcess* remoteproc = remote_procs_.Add(spawn);
   if (!remoteproc)
