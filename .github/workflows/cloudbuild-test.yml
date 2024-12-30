@@ -74,15 +74,16 @@ jobs:
           wget https://github.com/bazelbuild/bazel/releases/download/6.0.0/bazel-6.0.0-installer-linux-x86_64.sh
           chmod +x bazel-6.0.0-installer-linux-x86_64.sh 
           ./bazel-6.0.0-installer-linux-x86_64.sh --user
+          export PATH=$PATH:~/bin
      # 11. 安装服务端
       - name: run server 
         run: |
           git clone https://gitee.com/cloudbuild888/buildbuddy.git
-          ./bin/bazel run //enterprise/server:server
+          bazel run //enterprise/server:server
      # 12. 安装executor 
       - name: run executor
         run: |
-          ./bin/bazel run //enterprise/server/cmd/executor:executor
+          bazel run //enterprise/server/cmd/executor:executor
      # 13. 分布式编译re2 
       - name: cloudbuild re2
         run: |
