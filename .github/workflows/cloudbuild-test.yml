@@ -79,10 +79,12 @@ jobs:
       - name: run server 
         run: |
           git clone https://gitee.com/cloudbuild888/buildbuddy.git
+          cd buildbuddy
           bazel run //enterprise/server:server
      # 12. 安装executor 
       - name: run executor
         run: |
+          cd buildbuddy
           bazel run //enterprise/server/cmd/executor:executor
      # 13. 分布式编译re2 
       - name: cloudbuild re2
