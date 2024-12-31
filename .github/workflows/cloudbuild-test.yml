@@ -112,7 +112,7 @@ jobs:
      # 测试 cloudbuild 编译出来的 re2 是否正常
       - name: Test re2(cloudbuild)
         run: |
-          cd re2_sharebuild/build
+          cd re2/build
           ./re2_test
           # ctest --output-on-failure
 
