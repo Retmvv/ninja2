@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <vector>
+#include <regex>
 
 #ifdef _WIN32
 #include <fcntl.h>
@@ -829,6 +830,17 @@ bool CloudCommandRunner::StartCommand(Edge* edge) {
   }
   for(auto &cmd:config_.rbe_config.fuzzy_rules){
     if(cmd.find(cmd_rule)!=std::string::npos){
+    SubprocessSet subprocset;
+    Subprocess* subproc = subprocset.Add(spawn->command,edge->use_console());
+    if (!subproc) {
+      return false;
+    }   
+    return true;
+    }
+  }
+   for(auto &cmd:config_.rbe_config.regex_rules){
+       std::regex patternRule(cmd);
+    if(std::regex_match(cmd_rule,patternRule)){
     SubprocessSet subprocset;
     Subprocess* subproc = subprocset.Add(spawn->command,edge->use_console());
     if (!subproc) {

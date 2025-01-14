@@ -85,9 +85,9 @@ void load_command_file(const std::string& project_root, BuildConfig &config){
                 config.rbe_config.local_only_rules.insert(cmd.as<std::string>());
             }
         }
-        if (command_set["commands"]["remote_no_cache"]) {
-            for (const auto& cmd : command_set["commands"]["remote_no_cache"]) {
-                 config.rbe_config.remote_no_cache_rules.insert(cmd.as<std::string>());
+        if (command_set["commands"]["regex_rule"]) {
+            for (const auto& cmd : command_set["commands"]["regex_rule"]) {
+                 config.rbe_config.regex_rules.insert(cmd.as<std::string>());
             }
         }
          if (command_set["commands"]["fuzzy_rule"]) {
