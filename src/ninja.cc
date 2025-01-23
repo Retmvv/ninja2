@@ -82,8 +82,21 @@ struct Options {
   /// Tool to run rather than building.
   const Tool* tool;
 
+  /// Whether duplicate rules for one target should warn or print an error.
+  bool dupe_edges_should_err;
+
   /// Whether phony cycles should warn or print an error.
   bool phony_cycle_should_err;
+
+  /// Whether a depfile with multiple targets on separate lines should
+  /// warn or print an error.
+  bool depfile_distinct_target_lines_should_err;
+
+  /// Whether to remain persistent.
+  bool persistent;
+
+  /// Experimental, buggy envvar option.
+  bool experimentalEnvvar;
 };
 
 /// The Ninja main() loads up a series of data structures; various tools need
@@ -1230,25 +1243,82 @@ bool DebugEnable(const string& name) {
 
 /// Set a warning flag.  Returns false if Ninja should exit instead of
 /// continuing.
-bool WarningEnable(const string& name, Options* options) {
+/// Set a warning flag.  Returns false if Ninja should exit instead  of
+/// continuing.
+bool WarningEnable(const string& name, Options* options, BuildConfig* config) {
   if (name == "list") {
     printf("warning flags:\n"
+"  dupbuild={err,warn}  multiple build lines for one target\n"
 "  phonycycle={err,warn}  phony build statement references itself\n"
-    );
+"  depfilemulti={err,warn}  depfile has multiple output paths on separate lines\n"
+"  missingdepfile={err,warn}  how to treat missing depfiles\n"
+"\n"
+" requires -o usesphonyoutputs=yes\n"
+"  outputdir={err,warn}  how to treat outputs that are directories\n"
+"  missingoutfile={err,warn}  how to treat missing output files\n"
+"  oldoutput={err,warn}  how to treat output files older than their inputs\n"
+"\n"
+" requires -o usessymlinkoutputs=yes\n"
+"  undeclaredsymlinkoutputs={err,warn}  build statements creating symlink outputs must "
+"declare them in symlink_outputs\n");
     return false;
+  } else if (name == "dupbuild=err") {
+    options->dupe_edges_should_err = true;
+    return true;
+  } else if (name == "dupbuild=warn") {
+    options->dupe_edges_should_err = false;
+    return true;
   } else if (name == "phonycycle=err") {
     options->phony_cycle_should_err = true;
     return true;
   } else if (name == "phonycycle=warn") {
     options->phony_cycle_should_err = false;
     return true;
-  } else if (name == "depfilemulti=err" ||
-             name == "depfilemulti=warn") {
-    Warning("deprecated warning 'depfilemulti'");
+  } else if (name == "depfilemulti=err") {
+    options->depfile_distinct_target_lines_should_err = true;
+    return true;
+  } else if (name == "depfilemulti=warn") {
+    options->depfile_distinct_target_lines_should_err = false;
+    return true;
+  } else if (name == "missingdepfile=err") {
+    config->missing_depfile_should_err = true;
+    return true;
+  } else if (name == "missingdepfile=warn") {
+    config->missing_depfile_should_err = false;
+    return true;
+  } else if (name == "outputdir=err") {
+    config->output_directory_should_err = true;
+    return true;
+  } else if (name == "outputdir=warn") {
+    config->output_directory_should_err = false;
+    return true;
+  } else if (name == "missingoutfile=err") {
+    config->missing_output_file_should_err = true;
+    return true;
+  } else if (name == "missingoutfile=warn") {
+    config->missing_output_file_should_err = false;
+    return true;
+  } else if (name == "oldoutput=err") {
+    config->old_output_should_err = true;
+    return true;
+  } else if (name == "oldoutput=warn") {
+    config->old_output_should_err = false;
+    return true;
+  } else if (name == "undeclaredsymlinkoutputs=err") {
+    config->undeclared_symlink_outputs_should_err = true;
+    return true;
+  } else if (name == "undeclaredsymlinkoutputs=warn") {
+    config->undeclared_symlink_outputs_should_err = false;
     return true;
   } else {
-    const char* suggestion = SpellcheckString(name.c_str(), "phonycycle=err",
-                                              "phonycycle=warn", nullptr);
+    const char* suggestion =
+        SpellcheckString(name.c_str(), "dupbuild=err", "dupbuild=warn",
+                         "phonycycle=err", "phonycycle=warn",
+                         "missingdepfile=err", "missingdepfile=warn",
+                         "outputdir=err", "outputdir=warn",
+                         "missingoutfile=err", "missingoutfile=warn",
+                         "oldoutput=err", "oldoutput=warn",
+                         "undeclaredsymlinkoutputs=err", "undeclaredsymlinkoutputs=warn", NULL);
     if (suggestion) {
       Error("unknown warning flag '%s', did you mean '%s'?",
             name.c_str(), suggestion);
@@ -1453,9 +1523,18 @@ int ReadFlags(int* argc, char*** argv,
       OPT_QUIET = 2,   
       OPT_SHAREBUILD = 3,  
       OPT_CLOUDBUILD = 4,  
-      OPT_PROJECT_ROOT_DIR = 5  
+      OPT_PROJECT_ROOT_DIR = 5  ,
+      OPT_FRONTEND = 6,
+      OPT_FRONTEND_FILE = 7,
+      OPT_EXPERIMENTALENVVAR = 8,
+      OPT_AOSP_MODE = 11,
   };  
   const option kLongOptions[] = {
+#ifndef _WIN32
+    { "frontend", required_argument, NULL, OPT_FRONTEND },
+    { "frontend_file", required_argument, NULL, OPT_FRONTEND_FILE },
+#endif
+    { "aosp", no_argument, NULL, OPT_AOSP_MODE },
     { "help", no_argument, NULL, 'h' },
     { "version", no_argument, NULL, OPT_VERSION },
     { "verbose", no_argument, NULL, 'v' },
@@ -1463,12 +1542,13 @@ int ReadFlags(int* argc, char*** argv,
     { "sharebuild", required_argument, NULL, OPT_SHAREBUILD },  
     { "cloudbuild", required_argument, NULL, OPT_CLOUDBUILD },  
     { "project-root-dir", required_argument, NULL, OPT_PROJECT_ROOT_DIR },
+    { "experimentalEnvvar", no_argument, NULL, OPT_EXPERIMENTALENVVAR },
     { NULL, 0, NULL, 0 }
   };
 
   int opt;
   while (!options->tool &&
-         (opt = getopt_long(*argc, *argv, "s:c:r:d:f:j:k:l:nt:vw:C:h",
+         (opt = getopt_long(*argc, *argv, "s:c:r:d:f:j:k:l:nt:vw:o:C:ph",
                             kLongOptions, NULL)) != -1) {
     switch (opt) {
         case 's':  
@@ -1543,15 +1623,31 @@ int ReadFlags(int* argc, char*** argv,
         config->verbosity = BuildConfig::NO_STATUS_UPDATE;
         break;
       case 'w':
-        if (!WarningEnable(optarg, options))
+        if (!WarningEnable(optarg, options,config))
           return 1;
         break;
       case 'C':
         options->working_dir = optarg;
         break;
+      case 'p':
+        options->persistent = true;
+        break;
       case OPT_VERSION:
         printf("%s\n", kNinjaVersion);
         return 0;
+        case OPT_FRONTEND:
+        config->frontend = optarg;
+        break;
+      case OPT_FRONTEND_FILE:
+        config->frontend_file = optarg;
+        break;
+      case OPT_EXPERIMENTALENVVAR:
+        options->experimentalEnvvar = true;
+        break;
+      // case OPT_AOSP_MODE:
+      //   config->aosp_mode = true;
+      //   read_aosp_path();
+      //   break;
       case 'h':
       default:
         deferGuessParallelism.Refresh();

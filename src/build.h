@@ -175,7 +175,16 @@ struct ProjectConfig {
 /// Options (e.g. verbosity, parallelism) passed to a build.
 struct BuildConfig {
   BuildConfig() : verbosity(NORMAL), dry_run(false), cloud_run(false), share_run(false), parallelism(1),
-                  failures_allowed(1), max_load_average(-0.0f) {}
+                  failures_allowed(1), max_load_average(-0.0f),
+                  frontend(NULL), frontend_file(NULL),
+                  missing_depfile_should_err(false),
+                  uses_symlink_outputs(false),
+                  undeclared_symlink_outputs_should_err(false),
+                  uses_phony_outputs(false),
+                  output_directory_should_err(false),
+                  missing_output_file_should_err(false),
+                  old_output_should_err(false),
+                  pre_remove_output_files(false){}
 
   enum Verbosity {
     QUIET,  // No output -- used when testing.
@@ -194,6 +203,39 @@ struct BuildConfig {
   /// means that we do not have any limit.
   double max_load_average;
   DepfileParserOptions depfile_parser_options;
+
+   /// Command to execute to handle build output
+  const char* frontend;
+
+  /// File to write build output to
+  const char* frontend_file;
+
+  /// Whether a missing depfile should warn or print an error.
+  bool missing_depfile_should_err;
+
+  /// Whether Ninja should check that symlink outputs are declared in the
+  /// symlink_outputs variable
+  bool uses_symlink_outputs;
+
+  /// Whether undeclared symlink outputs should print a warning or error out
+  bool undeclared_symlink_outputs_should_err;
+
+  /// Whether the generator uses 'phony_output's
+  /// Controls the warnings below
+  bool uses_phony_outputs;
+
+  /// Whether an output can be a directory
+  bool output_directory_should_err;
+
+  /// Whether a missing output file should warn or print an error.
+  bool missing_output_file_should_err;
+
+  /// Whether an output with an older timestamp than the inputs should
+  /// warn or print an error.
+  bool old_output_should_err;
+
+  /// Whether to remove outputs before executing rule commands
+  bool pre_remove_output_files;
 };
 
 /// Builder wraps the build process: starting commands, updating status.

@@ -1155,108 +1155,349 @@ bool Builder::StartEdge(Edge* edge, string* err) {
   return true;
 }
 
+// bool Builder::FinishCommand(CommandRunner::Result* result, string* err) {
+//   METRIC_RECORD("FinishCommand");
+
+//   Edge* edge = result->edge;
+
+//   // First try to extract dependencies from the result, if any.
+//   // This must happen first as it filters the command output (we want
+//   // to filter /showIncludes output, even on compile failure) and
+//   // extraction itself can fail, which makes the command fail from a
+//   // build perspective.
+//   vector<Node*> deps_nodes;
+//   string deps_type = edge->GetBinding("deps");
+//   const string deps_prefix = edge->GetBinding("msvc_deps_prefix");
+//   if (!deps_type.empty()) {
+//     string extract_err;
+//     if (!ExtractDeps(result, deps_type, deps_prefix, &deps_nodes,
+//                      &extract_err) &&
+//         result->success()) {
+//       if (!result->output.empty())
+//         result->output.append("\n");
+//       result->output.append(extract_err);
+//       result->status = ExitFailure;
+//     }
+//   }
+
+//   int64_t start_time_millis, end_time_millis;
+//   RunningEdgeMap::iterator it = running_edges_.find(edge);
+//   start_time_millis = it->second;
+//   end_time_millis = GetTimeMillis() - start_time_millis_;
+//   running_edges_.erase(it);
+
+//   status_->BuildEdgeFinished(edge, start_time_millis, end_time_millis,
+//                              result->success(), result->output);
+
+//   // The rest of this function only applies to successful commands.
+//   if (!result->success()) {
+//     return plan_.EdgeFinished(edge, Plan::kEdgeFailed, err);
+//   }
+
+//   // Restat the edge outputs
+//   TimeStamp record_mtime = 0;
+//   if (!config_.dry_run) {
+//     const bool restat = edge->GetBindingBool("restat");
+//     const bool generator = edge->GetBindingBool("generator");
+//     bool node_cleaned = false;
+//     record_mtime = edge->command_start_time_;
+
+//     // restat and generator rules must restat the outputs after the build
+//     // has finished. if record_mtime == 0, then there was an error while
+//     // attempting to touch/stat the temp file when the edge started and
+//     // we should fall back to recording the outputs' current mtime in the
+//     // log.
+//     if (record_mtime == 0 || restat || generator) {
+//       for (vector<Node*>::iterator o = edge->outputs_.begin();
+//            o != edge->outputs_.end(); ++o) {
+//         TimeStamp new_mtime = disk_interface_->Stat((*o)->path(), err);
+//         if (new_mtime == -1)
+//           return false;
+//         if (new_mtime > record_mtime)
+//           record_mtime = new_mtime;
+//         if ((*o)->mtime() == new_mtime && restat) {
+//           // The rule command did not change the output.  Propagate the clean
+//           // state through the build graph.
+//           // Note that this also applies to nonexistent outputs (mtime == 0).
+//           if (!plan_.CleanNode(&scan_, *o, err))
+//             return false;
+//           node_cleaned = true;
+//         }
+//       }
+//     }
+//     if (node_cleaned) {
+//       record_mtime = edge->command_start_time_;
+//     }
+//   }
+
+//   if (!plan_.EdgeFinished(edge, Plan::kEdgeSucceeded, err))
+//     return false;
+
+//   // Delete any left over response file.
+//   string rspfile = edge->GetUnescapedRspfile();
+//   if (!rspfile.empty() && !g_keep_rsp)
+//     disk_interface_->RemoveFile(rspfile);
+
+//   if (scan_.build_log()) {
+//     if (!scan_.build_log()->RecordCommand(edge, start_time_millis,
+//                                           end_time_millis, record_mtime)) {
+//       *err = string("Error writing to build log: ") + strerror(errno);
+//       return false;
+//     }
+//   }
+
+//   if (!deps_type.empty() && !config_.dry_run) {
+//     assert(!edge->outputs_.empty() && "should have been rejected by parser");
+//     for (std::vector<Node*>::const_iterator o = edge->outputs_.begin();
+//          o != edge->outputs_.end(); ++o) {
+//       TimeStamp deps_mtime = disk_interface_->Stat((*o)->path(), err);
+//       if (deps_mtime == -1)
+//         return false;
+//       if (!scan_.deps_log()->RecordDeps(*o, deps_mtime, deps_nodes)) {
+//         *err = std::string("Error writing to deps log: ") + strerror(errno);
+//         return false;
+//       }
+//     }
+//   }
+//   return true;
+// }
 bool Builder::FinishCommand(CommandRunner::Result* result, string* err) {
-  METRIC_RECORD("FinishCommand");
+METRIC_RECORD("FinishCommand");
 
   Edge* edge = result->edge;
+  bool phony_output = edge->IsPhonyOutput();
 
-  // First try to extract dependencies from the result, if any.
-  // This must happen first as it filters the command output (we want
-  // to filter /showIncludes output, even on compile failure) and
-  // extraction itself can fail, which makes the command fail from a
-  // build perspective.
   vector<Node*> deps_nodes;
   string deps_type = edge->GetBinding("deps");
-  const string deps_prefix = edge->GetBinding("msvc_deps_prefix");
-  if (!deps_type.empty()) {
-    string extract_err;
-    if (!ExtractDeps(result, deps_type, deps_prefix, &deps_nodes,
-                     &extract_err) &&
-        result->success()) {
-      if (!result->output.empty())
-        result->output.append("\n");
-      result->output.append(extract_err);
-      result->status = ExitFailure;
+  if (!phony_output) {
+    // First try to extract dependencies from the result, if any.
+    // This must happen first as it filters the command output (we want
+    // to filter /showIncludes output, even on compile failure) and
+    // extraction itself can fail, which makes the command fail from a
+    // build perspective.
+    const string deps_prefix = edge->GetBinding("msvc_deps_prefix");
+    if (!deps_type.empty()) {
+      string extract_err;
+      if (!ExtractDeps(result, deps_type, deps_prefix, &deps_nodes,
+                       &extract_err) &&
+          result->success()) {
+        if (!result->output.empty())
+          result->output.append("\n");
+        result->output.append(extract_err);
+        result->status = ExitFailure;
+      }
     }
   }
 
   int64_t start_time_millis, end_time_millis;
-  RunningEdgeMap::iterator it = running_edges_.find(edge);
-  start_time_millis = it->second;
+  RunningEdgeMap::iterator i = running_edges_.find(edge);
+  start_time_millis = i->second;
   end_time_millis = GetTimeMillis() - start_time_millis_;
-  running_edges_.erase(it);
-
-  status_->BuildEdgeFinished(edge, start_time_millis, end_time_millis,
-                             result->success(), result->output);
-
-  // The rest of this function only applies to successful commands.
-  if (!result->success()) {
-    return plan_.EdgeFinished(edge, Plan::kEdgeFailed, err);
-  }
+  running_edges_.erase(i);
 
   // Restat the edge outputs
-  TimeStamp record_mtime = 0;
-  if (!config_.dry_run) {
-    const bool restat = edge->GetBindingBool("restat");
-    const bool generator = edge->GetBindingBool("generator");
-    bool node_cleaned = false;
-    record_mtime = edge->command_start_time_;
+  TimeStamp output_mtime = 0;
+  if (result->success() && !config_.dry_run && !phony_output) {
+    bool restat = edge->IsRestat();
+    vector<Node*> nodes_cleaned;
 
-    // restat and generator rules must restat the outputs after the build
-    // has finished. if record_mtime == 0, then there was an error while
-    // attempting to touch/stat the temp file when the edge started and
-    // we should fall back to recording the outputs' current mtime in the
-    // log.
-    if (record_mtime == 0 || restat || generator) {
-      for (vector<Node*>::iterator o = edge->outputs_.begin();
-           o != edge->outputs_.end(); ++o) {
-        TimeStamp new_mtime = disk_interface_->Stat((*o)->path(), err);
-        if (new_mtime == -1)
-          return false;
-        if (new_mtime > record_mtime)
-          record_mtime = new_mtime;
-        if ((*o)->mtime() == new_mtime && restat) {
-          // The rule command did not change the output.  Propagate the clean
-          // state through the build graph.
-          // Note that this also applies to nonexistent outputs (mtime == 0).
-          if (!plan_.CleanNode(&scan_, *o, err))
+    TimeStamp newest_input = 0;
+    Node* newest_input_node = nullptr;
+    for (vector<Node*>::iterator i = edge->inputs_.begin();
+         i != edge->inputs_.end() - edge->order_only_deps_; ++i) {
+      TimeStamp input_mtime = (*i)->mtime();
+      if (input_mtime == -1)
+        return false;
+      if (input_mtime > newest_input) {
+        newest_input = input_mtime;
+        newest_input_node = (*i);
+      }
+    }
+
+    set<string> declared_symlinks;
+    if (config_.uses_symlink_outputs) {
+      string symlink_outputs = edge->GetSymlinkOutputs();
+      if (symlink_outputs.length() > 0) {
+        stringstream ss(symlink_outputs);
+        string path;
+        /// Naively split symlink_outputs path by the empty ' ' space character.
+        /// because the '$ ' escape doesn't exist at this stage. In experimentation
+        /// and practice across a number of AOSP configurations, this is OK.
+        ///
+        /// We could modify the GetBindingImpl/GetSymlinkOutputs API to support lists,
+        /// but it'd be an invasive change that'll require a little bit more designing.
+        /// For example, how do we expand "${out}.d" if ${out} is a list?
+        ///
+        /// That said, keep in mind that this is a simple string split that could
+        /// fail with paths containing spaces.
+        while (getline(ss, path, ' ')) {
+          uint64_t slash_bits;
+          if (!CanonicalizePath(&path, &slash_bits, err)) {
             return false;
-          node_cleaned = true;
+          }
+          declared_symlinks.insert(move(path));
         }
       }
     }
-    if (node_cleaned) {
-      record_mtime = edge->command_start_time_;
+
+    for (vector<Node*>::iterator o = edge->outputs_.begin();
+         o != edge->outputs_.end(); ++o) {
+      bool is_dir = false;
+      bool is_symlink = false;
+      TimeStamp old_mtime = (*o)->mtime();
+      if (!(*o)->LStat(disk_interface_, &is_dir, &is_symlink, err))
+        return false;
+
+      TimeStamp new_mtime = (*o)->mtime();
+
+      if (config_.uses_symlink_outputs) {
+        /// Warn or error if created symlinks aren't declared in symlink_outputs,
+        /// or if created files are declared in symlink_outputs.
+        if (is_symlink) {
+          if (declared_symlinks.find((*o)->path()) == declared_symlinks.end()) {
+            // Not in declared_symlinks
+            if (!result->output.empty())
+              result->output.append("\n");
+            result->output.append("ninja: " + (*o)->path() + " is a symlink, but it was not declared in symlink_outputs");
+            if (config_.undeclared_symlink_outputs_should_err) {
+              result->status = ExitFailure;
+            }
+          } else {
+            declared_symlinks.erase((*o)->path());
+          }
+        } else if (!is_symlink && declared_symlinks.find((*o)->path()) != declared_symlinks.end()) {
+          if (!result->output.empty())
+            result->output.append("\n");
+          result->output.append("ninja: " + (*o)->path() + " is not a symlink, but it was declared in symlink_outputs");
+          declared_symlinks.erase((*o)->path());
+          if (config_.undeclared_symlink_outputs_should_err) {
+            result->status = ExitFailure;
+          }
+        }
+      }
+
+      if (config_.uses_phony_outputs) {
+        if (new_mtime == 0) {
+          if (!result->output.empty())
+            result->output.append("\n");
+          result->output.append("ninja: output file missing after successful execution: ");
+          result->output.append((*o)->path());
+          if (config_.missing_output_file_should_err) {
+            result->status = ExitFailure;
+          }
+        } else if (!restat && new_mtime < newest_input) {
+          if (!result->output.empty())
+            result->output.append("\n");
+          result->output.append("ninja: Missing `restat`? An output file is older than the most recent input:\n output: ");
+          result->output.append((*o)->path());
+          result->output.append("\n  input: ");
+          result->output.append(newest_input_node->path());
+          if (config_.old_output_should_err) {
+            result->status = ExitFailure;
+          }
+        }
+        if (is_dir) {
+          if (!result->output.empty())
+            result->output.append("\n");
+          result->output.append("ninja: outputs should be files, not directories: ");
+          result->output.append((*o)->path());
+          if (config_.output_directory_should_err) {
+            result->status = ExitFailure;
+          }
+        }
+      }
+      if (new_mtime > output_mtime)
+        output_mtime = new_mtime;
+      if (old_mtime == new_mtime && restat) {
+        nodes_cleaned.push_back(*o);
+        continue;
+      }
     }
+
+    /// Ensure that declared_symlinks is empty after verifying that symlink outputs
+    /// were declared in the edge. A non-empty declared_symlinks set indicates that
+    /// not all declared symlinks were created by the edge itself (over-specification).
+    if (config_.uses_symlink_outputs && declared_symlinks.size() > 0) {
+      string missing_outputs;
+      for (string symlink : declared_symlinks) {
+        missing_outputs = missing_outputs + " " + symlink;
+      }
+      result->output.append(
+        "ninja: not all symlink_outputs were created for this edge:" + missing_outputs);
+      if (config_.undeclared_symlink_outputs_should_err) {
+        result->status = ExitFailure;
+      }
+    }
+
+    status_->BuildEdgeFinished(edge, end_time_millis, result);
+
+    if (result->success() && !nodes_cleaned.empty()) {
+      for (vector<Node*>::iterator o = nodes_cleaned.begin();
+           o != nodes_cleaned.end(); ++o) {
+        // The rule command did not change the output.  Propagate the clean
+        // state through the build graph.
+        // Note that this also applies to nonexistent outputs (mtime == 0).
+        if (!plan_.CleanNode(&scan_, *o, err))
+          return false;
+      }
+
+      // If any output was cleaned, find the most recent mtime of any
+      // (existing) non-order-only input or the depfile.
+      TimeStamp restat_mtime = newest_input;
+
+      string depfile = edge->GetUnescapedDepfile();
+      if (restat_mtime != 0 && deps_type.empty() && !depfile.empty()) {
+        TimeStamp depfile_mtime = disk_interface_->Stat(
+            // depfile is relative, disk_interface_ uses global paths.
+            edge->pos_.scope()->GlobalPath(depfile).h.data(),
+            err);
+        if (depfile_mtime == -1)
+          return false;
+        if (depfile_mtime > restat_mtime)
+          restat_mtime = depfile_mtime;
+      }
+
+      // The total number of edges in the plan may have changed as a result
+      // of a restat.
+      status_->PlanHasTotalEdges(plan_.command_edge_count());
+
+      output_mtime = restat_mtime;
+    }
+  } else {
+    status_->BuildEdgeFinished(edge, end_time_millis, result);
   }
 
-  if (!plan_.EdgeFinished(edge, Plan::kEdgeSucceeded, err))
+  if (!plan_.EdgeFinished(edge, result->success() ? Plan::kEdgeSucceeded : Plan::kEdgeFailed, err))
     return false;
+
+  // The rest of this function only applies to successful commands.
+  if (!result->success()) {
+    return true;
+  }
 
   // Delete any left over response file.
   string rspfile = edge->GetUnescapedRspfile();
   if (!rspfile.empty() && !g_keep_rsp)
-    disk_interface_->RemoveFile(rspfile);
+    // rspfile is relative, disk_interface_ uses global paths.
+    disk_interface_->RemoveFile(
+        edge->pos_.scope()->GlobalPath(rspfile).h.data());
 
-  if (scan_.build_log()) {
+  if (scan_.build_log() && !phony_output) {
     if (!scan_.build_log()->RecordCommand(edge, start_time_millis,
-                                          end_time_millis, record_mtime)) {
+                                          end_time_millis, output_mtime)) {
       *err = string("Error writing to build log: ") + strerror(errno);
       return false;
     }
   }
 
-  if (!deps_type.empty() && !config_.dry_run) {
-    assert(!edge->outputs_.empty() && "should have been rejected by parser");
-    for (std::vector<Node*>::const_iterator o = edge->outputs_.begin();
-         o != edge->outputs_.end(); ++o) {
-      TimeStamp deps_mtime = disk_interface_->Stat((*o)->path(), err);
-      if (deps_mtime == -1)
-        return false;
-      if (!scan_.deps_log()->RecordDeps(*o, deps_mtime, deps_nodes)) {
-        *err = std::string("Error writing to deps log: ") + strerror(errno);
-        return false;
-      }
+  if (!deps_type.empty() && !config_.dry_run && !phony_output) {
+    Node* out = edge->outputs_[0];
+    TimeStamp deps_mtime = disk_interface_->LStat(out->globalPath().h.data(), nullptr, nullptr, err);
+    if (deps_mtime == -1)
+      return false;
+    if (!scan_.deps_log()->RecordDeps(out, deps_mtime, deps_nodes)) {
+      *err = string("Error writing to deps log: ") + strerror(errno);
+      return false;
     }
   }
   return true;
@@ -1295,6 +1536,15 @@ bool Builder::ExtractDeps(CommandRunner::Result* result,
       break;
     case DiskInterface::NotFound:
       err->clear();
+      // We only care if the depfile is missing when the tool succeeded.
+      if (!config_.dry_run && result->status == ExitSuccess) {
+        if (false && config_.missing_depfile_should_err) {
+          *err = string("depfile is missing");
+          return false;
+        } else {
+          status_->Warning("depfile is missing (%s for %s)", depfile.c_str(), result->edge->outputs_[0]->path().c_str());
+        }
+      }
       break;
     case DiskInterface::OtherError:
       return false;
